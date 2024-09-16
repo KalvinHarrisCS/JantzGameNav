@@ -4,7 +4,7 @@ import requests
 
 class ElevenLabsAPI:
     def __init__(self, api_key):
-        self.api_key = "sk_e0bb63bc4c444746761870ba160c105f7bf35fa31122ab2b"
+        self.api_key = api_key
         self.voice_id = '8aKC1tJmw2H0VAETY4sJ'  # Default voice ID; change if desired
 
     def text_to_speech(self, text):
@@ -36,3 +36,6 @@ class ElevenLabsAPI:
         except Exception as e:
             print(f"An error occurred while calling the ElevenLabs API: {e}")
             return None
+
+    
+ 
