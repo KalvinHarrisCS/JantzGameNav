@@ -7,9 +7,10 @@ from Functions.ui.ocr import OCRProcessor
 from Functions.api_integration import ElevenLabsAPI
 import pygame  # Import pygame for audio playback
 import threading
+import re
 
 class KeyBinder:
-    def __init__(self, overlay_event):
+    def __init__(self, overlay_event, voice_models):
         print("Initializing KeyBinder...")
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load_config()
@@ -26,6 +27,9 @@ class KeyBinder:
 
         # Event to signal when overlay has been used
         self.overlay_event = overlay_event
+
+        # Voice models passed in from the UI
+        self.voice_models = voice_models
 
     def bind_key(self):
         if not self.bound_key:
@@ -52,7 +56,6 @@ class KeyBinder:
             self.overlay_event.set()
 
             # Wait until the overlay has been used
-            # This ensures that the overlay has completed its task before proceeding
             while self.overlay_event.is_set():
                 # Small sleep to prevent busy waiting
                 threading.Event().wait(0.1)
@@ -79,12 +82,16 @@ class KeyBinder:
 
                 # Perform OCR on the captured image
                 text = self.ocr_processor.extract_text(image_path)
-                # Filter out dashes from the text
-                filtered_text = text.replace("-", "")
+                filtered_text = text.replace("-", "").replace("|", "")
                 if filtered_text.strip():
                     print(f"Extracted Text:\n{filtered_text}")
+
+                    # Extract the first name and match it to the corresponding voice model
+                    first_name = self.extract_first_name(filtered_text)
+                    voice_model_id = self.get_voice_model(first_name)
+
                     if self.eleven_labs_api:
-                        audio_file = self.eleven_labs_api.text_to_speech(filtered_text)
+                        audio_file = self.eleven_labs_api.text_to_speech(filtered_text, voice_model_id)
                         if audio_file:
                             print(f"Playing audio file '{audio_file}'...")
                             self.play_audio(audio_file)
@@ -98,22 +105,31 @@ class KeyBinder:
             else:
                 print("Screen area not defined.")
 
+    def extract_first_name(self, text):
+        # Extracts the first word (assuming it is a name followed by ":")
+        match = re.match(r"([A-Za-z]+):", text)
+        if match:
+            return match.group(1)
+        return None
+
+    def get_voice_model(self, name):
+        # Match the name to a voice model, or use the default if not found
+        if name and name in self.voice_models:
+            print(f"Using voice model for {name}.")
+            return self.voice_models[name]
+        else:
+            print(f"No specific name found or no matching model. Using default voice model.")
+            return self.voice_models.get("Default", "base_model_id")
+
     def play_audio(self, audio_file):
         try:
-            # Stop any currently playing audio
             pygame.mixer.music.stop()
-
-            # Load the audio file
             pygame.mixer.music.load(audio_file)
-
-            # Play the audio file
             pygame.mixer.music.play()
 
-            # Wait for the audio to finish playing
             while pygame.mixer.music.get_busy():
                 pygame.time.Clock().tick(10)
-            
-            # Reinitialize the mixer to release the file
+
             pygame.mixer.quit()
             pygame.mixer.init()
         except Exception as e:

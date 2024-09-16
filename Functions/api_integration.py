@@ -5,37 +5,41 @@ import requests
 class ElevenLabsAPI:
     def __init__(self, api_key):
         self.api_key = api_key
-        self.voice_id = '8aKC1tJmw2H0VAETY4sJ'  # Default voice ID; change if desired
+        self.base_url = "https://api.elevenlabs.io/v1"
 
-    def text_to_speech(self, text):
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}"
+    def text_to_speech(self, text, voice_model_id="default"):
+        """Sends the text to ElevenLabs TTS API with a specific voice model."""
+        if not self.api_key:
+            print("No API key provided for ElevenLabs.")
+            return None
+        
         headers = {
-            'Accept': 'audio/mpeg',
-            'Content-Type': 'application/json',
-            'xi-api-key': self.api_key,
+            "xi-api-key": self.api_key,
+            "Content-Type": "application/json"
         }
+        
+        # Use the voice model ID passed in or a default one
+        url = f"{self.base_url}/text-to-speech/{voice_model_id}"
+
         data = {
             "text": text,
             "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.5
+                "stability": 0.75,
+                "similarity_boost": 0.75
             }
         }
-        try:
-            print("Sending text to ElevenLabs API for TTS conversion...")
-            response = requests.post(url, json=data, headers=headers)
-            if response.status_code == 200:
-                audio_file = 'output.mp3'
-                with open(audio_file, 'wb') as f:
-                    f.write(response.content)
-                print(f"Audio content saved to '{audio_file}'.")
-                return audio_file
-            else:
-                print(f"API request failed with status code {response.status_code}: {response.text}")
-                return None
-        except Exception as e:
-            print(f"An error occurred while calling the ElevenLabs API: {e}")
-            return None
 
-    
- 
+        try:
+            response = requests.post(url, json=data, headers=headers)
+            response.raise_for_status()
+
+            # Save the response audio to a file
+            audio_file = "output.mp3"
+            with open(audio_file, "wb") as f:
+                f.write(response.content)
+            
+            return audio_file
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error while making request to ElevenLabs API: {e}")
+            return None
