@@ -16,8 +16,8 @@ class OCRProcessor:
             print(f"Performing OCR on {image_path}...")
             text = pytesseract.image_to_string(Image.open(image_path))
             print("OCR completed successfully.")
-            # Filter out dashes
-            filtered_text = text.replace("-", "")
+            # Filter out dashes and vertical bars
+            filtered_text = text.replace("-", "").replace("|", "")
             return filtered_text
         except Exception as e:
             print(f"An error occurred during OCR: {e}")
