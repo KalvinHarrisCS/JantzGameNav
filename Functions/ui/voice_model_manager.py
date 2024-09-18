@@ -2,11 +2,14 @@
 
 import tkinter as tk
 from tkinter import messagebox
+from ENV.config_manager import ConfigManager  # Import ConfigManager
 
 class VoiceModelManager:
-    def __init__(self, voice_models, api_key):
-        self.voice_models = voice_models
-        self.api_key = api_key
+    def __init__(self, config_manager):
+        self.config_manager = config_manager
+        self.config = self.config_manager.load_config()
+        self.voice_models = self.config.get('voice_models', {})
+        self.api_key = self.config.get('api_key', "")
         self.root = tk.Tk()
         self.root.title("Voice Model Manager")
 
@@ -66,7 +69,7 @@ class VoiceModelManager:
 
         # Entry for default voice model
         self.default_entry = tk.Entry(self.root, width=50)
-        self.default_entry.insert(0, self.voice_models.get("Default", "Default"))
+        self.default_entry.insert(0, self.voice_models.get("Default", ""))
         self.default_entry.pack(pady=5)
 
         # Save default button
@@ -101,6 +104,9 @@ class VoiceModelManager:
             selected_item = self.voice_model_listbox.get(selected)
             name, _ = selected_item.split(": ")
             del self.voice_models[name]
+            # Save updated voice models to config
+            self.config['voice_models'] = self.voice_models
+            self.config_manager.save_config(self.config)
             self.update_listbox()
         else:
             messagebox.showwarning("No selection", "Please select a voice model to delete.")
@@ -135,6 +141,9 @@ class VoiceModelManager:
         model_id = self.model_id_entry.get()
         if name and model_id:
             self.voice_models[name] = model_id
+            # Save to config
+            self.config['voice_models'] = self.voice_models
+            self.config_manager.save_config(self.config)
             self.update_listbox()
             self.voice_model_window.destroy()
         else:
@@ -145,6 +154,9 @@ class VoiceModelManager:
         default_model_id = self.default_entry.get()
         if default_model_id:
             self.voice_models["Default"] = default_model_id
+            # Save to config
+            self.config['voice_models'] = self.voice_models
+            self.config_manager.save_config(self.config)
             messagebox.showinfo("Success", "Default voice model saved.")
         else:
             messagebox.showerror("Error", "Default voice model ID cannot be empty.")
@@ -154,6 +166,9 @@ class VoiceModelManager:
         api_key = self.api_entry.get()
         if api_key:
             self.api_key = api_key
+            # Save to config
+            self.config['api_key'] = self.api_key
+            self.config_manager.save_config(self.config)
             messagebox.showinfo("Success", "API key saved.")
         else:
             messagebox.showerror("Error", "API key cannot be empty.")

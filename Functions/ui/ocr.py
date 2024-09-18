@@ -1,14 +1,18 @@
-# Functions/ocr.py
+# Functions/ui/ocr.py
 
 import pytesseract
 from PIL import Image
-import os
+import sys
 
 class OCRProcessor:
     def __init__(self):
         # If Tesseract is not in your PATH, specify the location directly
-        # For Windows users, uncomment and set the path to your Tesseract executable
-        # pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+        if sys.platform.startswith('win'):
+            pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+        elif sys.platform.startswith('darwin'):
+            pytesseract.pytesseract.tesseract_cmd = r'/usr/local/bin/tesseract'  # Adjust if different
+        else:
+            pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'  # Adjust if different
         pass
 
     def extract_text(self, image_path):

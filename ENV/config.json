@@ -1,9 +1,14 @@
 {
     "bound_key": "F7",
     "screen_area": {
-        "start_x": 552,
-        "start_y": 265,
-        "end_x": 2014,
-        "end_y": 1170
+        "start_x": 1445,
+        "start_y": 1000,
+        "end_x": 2181,
+        "end_y": 1060
+    },
+    "api_key": "sk_85ae14d07a91eff7b5574b3b6b4737c21dd46b9c805183cf",
+    "voice_models": {
+        "Default": "8aKC1tJmw2H0VAETY4sJ",
+        "Abelard": "DYQue2UpoFclHOh45rfs"
     }
 }

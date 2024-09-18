@@ -70,12 +70,15 @@ class ScreenOverlay:
         self.root.destroy()
 
     def save_selection(self):
-        config_data = {
-            'screen_area': self.selection
-        }
+        config_data = self.load_existing_config()
+        config_data['screen_area'] = self.selection
         config_manager = ConfigManager()
         config_manager.save_config(config_data)
         print("Screen area saved successfully.")
+
+    def load_existing_config(self):
+        config_manager = ConfigManager()
+        return config_manager.load_config()
 
     def run_overlay(self):
         self.root.mainloop()

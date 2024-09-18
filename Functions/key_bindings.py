@@ -1,4 +1,4 @@
-# Functions/key_binding.py
+# Functions/key_bindings.py
 
 import keyboard
 import pyautogui
@@ -8,11 +8,12 @@ from Functions.api_integration import ElevenLabsAPI
 import pygame  # Import pygame for audio playback
 import threading
 import re
+import os
 
 class KeyBinder:
-    def __init__(self, overlay_event, voice_models):
+    def __init__(self, overlay_event, config_manager):
         print("Initializing KeyBinder...")
-        self.config_manager = ConfigManager()
+        self.config_manager = config_manager
         self.config = self.config_manager.load_config()
         self.bound_key = self.config.get('bound_key')  # Load existing key if available
         self.ocr_processor = OCRProcessor()
@@ -28,8 +29,8 @@ class KeyBinder:
         # Event to signal when overlay has been used
         self.overlay_event = overlay_event
 
-        # Voice models passed in from the UI
-        self.voice_models = voice_models
+        # Voice models loaded from config
+        self.voice_models = self.config.get('voice_models', {})
 
     def bind_key(self):
         if not self.bound_key:
@@ -51,6 +52,12 @@ class KeyBinder:
 
     def on_key_press(self):
         with self.lock:
+            # Reload configurations
+            self.config = self.config_manager.load_config()
+            self.api_key = self.config.get('api_key')
+            self.eleven_labs_api = ElevenLabsAPI(self.api_key) if self.api_key else None
+            self.voice_models = self.config.get('voice_models', {})
+
             print("Key pressed! Launching screen overlay for selection...")
             # Signal the main thread to launch the overlay
             self.overlay_event.set()
@@ -102,6 +109,11 @@ class KeyBinder:
                         print("API key not provided. Cannot perform text-to-speech conversion.")
                 else:
                     print("No text found in the image.")
+
+                # Delete the screenshot after processing
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+                    print(f"Deleted screenshot '{image_path}'.")
             else:
                 print("Screen area not defined.")
 
