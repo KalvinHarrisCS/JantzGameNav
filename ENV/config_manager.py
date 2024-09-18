@@ -3,11 +3,31 @@
 import json
 import os
 import threading
+import sys
 
 class ConfigManager:
     def __init__(self, config_file='config.json'):
-        self.config_path = os.path.join(os.path.dirname(__file__), config_file)
         self.lock = threading.Lock()
+        self.config_file = config_file
+        self.config_path = self.get_config_path()
+
+    def get_config_path(self):
+        # Determine the appropriate directory to store the config file
+        if sys.platform.startswith('win'):
+            # Use AppData directory on Windows
+            appdata = os.getenv('APPDATA')
+            config_dir = os.path.join(appdata, 'MyApp')  # Replace 'MyApp' with your application name
+        else:
+            # Use home directory on other platforms
+            home_dir = os.path.expanduser("~")
+            config_dir = os.path.join(home_dir, '.my_app')  # Replace 'my_app' with your application name
+
+        # Create the directory if it doesn't exist
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+
+        # Return the full path to the config file
+        return os.path.join(config_dir, self.config_file)
 
     def load_config(self):
         with self.lock:
