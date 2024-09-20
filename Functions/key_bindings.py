@@ -1,76 +1,89 @@
 # Functions/key_bindings.py
 
-import keyboard
+import threading
+from pynput import keyboard as pkb
 import pyautogui
+import pygame
+import os
 from ENV.config_manager import ConfigManager
 from Functions.ui.ocr import OCRProcessor
-from Functions.api_integration import ElevenLabsAPI
-import pygame  # Import pygame for audio playback
-import threading
-import re
-import os
+from Functions.api_integration import ElevenLabsAPI, OpenAIAPI
 
 class KeyBinder:
-    def __init__(self, overlay_event, config_manager):
+    def __init__(self, command_queue, config_manager):
         print("Initializing KeyBinder...")
+        self.command_queue = command_queue
         self.config_manager = config_manager
         self.config = self.config_manager.load_config()
-        self.bound_key = self.config.get('bound_key')  # Load existing key if available
+        self.bound_key = self.config.get('bound_key', 'f7')
+        self.question_key = self.config.get('question_key', 'f9')
         self.ocr_processor = OCRProcessor()
         self.api_key = self.config.get('api_key')
         self.eleven_labs_api = ElevenLabsAPI(self.api_key) if self.api_key else None
 
-        # Initialize pygame mixer
+        self.openai_api_key = self.config.get('openai_api_key')
+        self.openai_api = OpenAIAPI(self.openai_api_key) if self.openai_api_key else None
+
         pygame.mixer.init()
-
-        # Initialize a lock to prevent concurrent key presses
         self.lock = threading.Lock()
-
-        # Event to signal when overlay has been used
-        self.overlay_event = overlay_event
-
-        # Voice models loaded from config
         self.voice_models = self.config.get('voice_models', {})
+        self.snipped_text = ""
 
-    def bind_key(self):
-        if not self.bound_key:
-            print("Please press the key you want to bind.")
-            self.bound_key = keyboard.read_key()
-            print(f"'{self.bound_key}' key is bound.")
-            # Save the bound key to config
-            self.config_manager.save_config({'bound_key': self.bound_key})
-        else:
-            print(f"Using previously bound key: '{self.bound_key}'")
+        self.snip_args = {}
+
+        # Initialize the listener
+        self.listener = pkb.Listener(on_press=self.on_press)
+        self.listener.daemon = True
+        self.listener.start()
 
     def start_listening(self):
-        if not self.bound_key:
-            print("No key bound. Please bind a key first.")
-            return
-        keyboard.add_hotkey(self.bound_key, self.on_key_press)
-        print(f"Listening for '{self.bound_key}' key presses...")
-        keyboard.wait()  # Keeps the listener running
+        print(f"Listening for '{self.bound_key}' and '{self.question_key}' key presses...")
+        self.listener.join()  # Keep the thread alive
 
-    def on_key_press(self):
+    def rebind_snip_to_audio(self, new_key):
+        self.bound_key = new_key
+        self.config['bound_key'] = self.bound_key
+        self.config_manager.save_config({'bound_key': self.bound_key})
+        print(f"Rebound SnipToAudio to '{self.bound_key}'.")
+
+    def rebind_snip_to_question(self, new_key):
+        self.question_key = new_key
+        self.config['question_key'] = self.question_key
+        self.config_manager.save_config({'question_key': self.question_key})
+        print(f"Rebound SnipToQuestion to '{self.question_key}'.")
+
+    def on_press(self, key):
+        try:
+            if hasattr(key, 'char') and key.char:
+                key_char = key.char.lower()
+            else:
+                key_char = str(key).split('.')[-1].lower()
+
+            if key_char == self.bound_key.lower():
+                self.on_snip_key_press()
+            elif key_char == self.question_key.lower():
+                self.on_summarize_key_press()
+        except Exception as e:
+            print(f"Exception in on_press: {e}")
+
+    def on_snip_key_press(self):
         with self.lock:
-            # Reload configurations
-            self.config = self.config_manager.load_config()
-            self.api_key = self.config.get('api_key')
-            self.eleven_labs_api = ElevenLabsAPI(self.api_key) if self.api_key else None
-            self.voice_models = self.config.get('voice_models', {})
+            self.reload_config()
+            print("SnipToAudio key pressed! Launching screen overlay for selection...")
+            self.snip_args = {'explain': True}
+            self.command_queue.put(('start_overlay', None))
 
-            print("Key pressed! Launching screen overlay for selection...")
-            # Signal the main thread to launch the overlay
-            self.overlay_event.set()
+    def on_summarize_key_press(self):
+        with self.lock:
+            self.reload_config()
+            print("SnipToQuestion key pressed! Launching screen overlay for selection...")
+            self.snip_args = {'summarize': True}
+            self.command_queue.put(('start_overlay', None))
 
-            # Wait until the overlay has been used
-            while self.overlay_event.is_set():
-                # Small sleep to prevent busy waiting
-                threading.Event().wait(0.1)
-
-            # After the overlay is closed, proceed with capturing and processing
+    def process_snip(self, explain=False, summarize=False):
+        try:
             screen_area = self.config_manager.load_config().get('screen_area')
             if screen_area:
-                # Capture the selected screen area
                 try:
                     screenshot = pyautogui.screenshot(
                         region=(
@@ -87,18 +100,35 @@ class KeyBinder:
                     print(f"An error occurred while capturing the screen area: {e}")
                     return
 
-                # Perform OCR on the captured image
                 text = self.ocr_processor.extract_text(image_path)
-                filtered_text = text.replace("-", "").replace("|", "")
-                if filtered_text.strip():
-                    print(f"Extracted Text:\n{filtered_text}")
+                self.snipped_text = text.replace("-", "").replace("|", "")
+                if self.snipped_text.strip():
+                    print(f"Extracted Text:\n{self.snipped_text}")
+                    if summarize:
+                        self.handle_summarization(self.snipped_text)
+                    elif explain:
+                        self.handle_explanation(self.snipped_text)
+                else:
+                    print("No text found in the image.")
 
-                    # Extract the first name and match it to the corresponding voice model
-                    first_name = self.extract_first_name(filtered_text)
-                    voice_model_id = self.get_voice_model(first_name)
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+                    print(f"Deleted screenshot '{image_path}'.")
+            else:
+                print("Screen area not defined.")
+
+        except Exception as e:
+            print(f"Exception in process_snip: {e}")
+
+    def handle_explanation(self, text):
+        try:
+            if self.openai_api:
+                explanation = self.openai_api.get_explanation(text)
+                if explanation:
+                    print(f"Explanation:\n{explanation}")
 
                     if self.eleven_labs_api:
-                        audio_file = self.eleven_labs_api.text_to_speech(filtered_text, voice_model_id)
+                        audio_file = self.eleven_labs_api.text_to_speech(explanation)
                         if audio_file:
                             print(f"Playing audio file '{audio_file}'...")
                             self.play_audio(audio_file)
@@ -106,32 +136,48 @@ class KeyBinder:
                         else:
                             print("Failed to generate audio from text.")
                     else:
-                        print("API key not provided. Cannot perform text-to-speech conversion.")
+                        print("ElevenLabs API key not provided. Cannot perform text-to-speech conversion.")
                 else:
-                    print("No text found in the image.")
-
-                # Delete the screenshot after processing
-                if os.path.exists(image_path):
-                    os.remove(image_path)
-                    print(f"Deleted screenshot '{image_path}'.")
+                    print("Failed to get explanation from OpenAI.")
             else:
-                print("Screen area not defined.")
+                print("OpenAI API key not provided. Cannot get explanation.")
+        except Exception as e:
+            print(f"Exception in handle_explanation: {e}")
 
-    def extract_first_name(self, text):
-        # Extracts the first word (assuming it is a name followed by ":")
-        match = re.match(r"([A-Za-z]+):", text)
-        if match:
-            return match.group(1)
-        return None
+    def handle_summarization(self, text):
+        try:
+            if self.openai_api:
+                summary = self.openai_api.summarize_text(text)
+                if summary:
+                    print(f"Summary:\n{summary}")
 
-    def get_voice_model(self, name):
-        # Match the name to a voice model, or use the default if not found
-        if name and name in self.voice_models:
-            print(f"Using voice model for {name}.")
-            return self.voice_models[name]
-        else:
-            print(f"No specific name found or no matching model. Using default voice model.")
-            return self.voice_models.get("Default", "base_model_id")
+                    if self.eleven_labs_api:
+                        audio_file = self.eleven_labs_api.text_to_speech(summary)
+                        if audio_file:
+                            print(f"Playing audio file '{audio_file}'...")
+                            self.play_audio(audio_file)
+                            print("Playback finished.")
+                        else:
+                            print("Failed to generate audio from summary.")
+                    else:
+                        print("ElevenLabs API key not provided. Cannot perform text-to-speech conversion.")
+                else:
+                    print("Failed to get summary from OpenAI.")
+            else:
+                print("OpenAI API key not provided. Cannot get summary.")
+        except Exception as e:
+            print(f"Exception in handle_summarization: {e}")
+
+    def reload_config(self):
+        try:
+            self.config = self.config_manager.load_config()
+            self.api_key = self.config.get('api_key')
+            self.eleven_labs_api = ElevenLabsAPI(self.api_key) if self.api_key else None
+            self.voice_models = self.config.get('voice_models', {})
+            self.openai_api_key = self.config.get('openai_api_key')
+            self.openai_api = OpenAIAPI(self.openai_api_key) if self.openai_api_key else None
+        except Exception as e:
+            print(f"Exception in reload_config: {e}")
 
     def play_audio(self, audio_file):
         try:
